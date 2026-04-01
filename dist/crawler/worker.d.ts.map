@@ -1,0 +1,1 @@
+{"version":3,"file":"worker.d.ts","sourceRoot":"","sources":["../../src/crawler/worker.ts"],"names":[],"mappings":"AAQA,MAAM,MAAM,aAAa,GAAG;IAC1B,KAAK,EAAE,MAAM,CAAA;CACd,CAAA;AAED;;;;;;GAMG;AACH,wBAAsB,SAAS,CAC7B,QAAQ,EAAE,MAAM,EAChB,YAAY,EAAE;IAAE,KAAK,EAAE,OAAO,CAAA;CAAE,EAChC,aAAa,EAAE,aAAa,GAC3B,OAAO,CAAC,IAAI,CAAC,CA8If"}

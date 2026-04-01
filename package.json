@@ -1,0 +1,30 @@
+{
+  "name": "ip-fabric-crawler",
+  "version": "1.0.0",
+  "description": "Distributed web crawler seeded at ipfabric.io",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "pino": "^9.3.2",
+    "postgres": "^3.4.4",
+    "robots-parser": "^3.0.1",
+    "undici": "^6.19.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.8.0",
+    "@types/node": "^20.14.14",
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "eslint": "^8.57.0",
+    "pino-pretty": "^11.2.2",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.4"
+  }
+}

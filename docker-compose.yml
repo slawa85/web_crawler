@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: crawler
+      POSTGRES_PASSWORD: crawlerpass
+      POSTGRES_DB: crawlerdb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crawler -d crawlerdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  crawler:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://crawler:crawlerpass@postgres:5432/crawlerdb
+      SEED_URL: ${SEED_URL:-https://ipfabric.io/}
+      WORKER_COUNT: ${WORKER_COUNT:-5}
+      CRAWL_DELAY_MS: ${CRAWL_DELAY_MS:-1000}
+      REQUEST_TIMEOUT_MS: ${REQUEST_TIMEOUT_MS:-10000}
+      MAX_DEPTH: ${MAX_DEPTH:-10}
+      MAX_PAGES: ${MAX_PAGES:-10000}
+      MAX_RESPONSE_BYTES: ${MAX_RESPONSE_BYTES:-5242880}
+      STALLED_TIMEOUT_MINUTES: ${STALLED_TIMEOUT_MINUTES:-5}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      NODE_ENV: production
+
+volumes:
+  postgres_data:
