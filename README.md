@@ -128,82 +128,6 @@ PostgreSQL is exposed on **`localhost:5432`** in both Docker and local setups. Y
 
 You will find two tables: `url_frontier` and `domain_info`.
 
-**Useful queries to run in pgAdmin's Query Tool:**
-
-```sql
--- Overall crawl progress
-SELECT status, COUNT(*) AS count
-FROM url_frontier
-GROUP BY status
-ORDER BY count DESC;
-
--- HTTP response breakdown
-SELECT
-  CASE
-    WHEN http_status BETWEEN 200 AND 299 THEN '2xx OK'
-    WHEN http_status BETWEEN 300 AND 399 THEN '3xx Redirect'
-    WHEN http_status BETWEEN 400 AND 499 THEN '4xx Client Error'
-    WHEN http_status BETWEEN 500 AND 599 THEN '5xx Server Error'
-    ELSE 'No response / error'
-  END AS category,
-  COUNT(*) AS count
-FROM url_frontier
-WHERE status IN ('done', 'failed')
-GROUP BY category
-ORDER BY count DESC;
-
--- Deepest pages discovered
-SELECT url, depth, parent_url
-FROM url_frontier
-ORDER BY depth DESC
-LIMIT 20;
-
--- Pages currently being fetched (in-flight)
-SELECT url, domain, updated_at
-FROM url_frontier
-WHERE status = 'in_progress'
-ORDER BY updated_at;
-
--- All failed URLs with their error messages
-SELECT url, error, http_status
-FROM url_frontier
-WHERE status = 'failed'
-ORDER BY discovered_at DESC;
-
--- robots.txt cache — what each domain allows
-SELECT domain, is_allowed, crawl_delay_ms, fetched_at
-FROM domain_info
-ORDER BY domain;
-```
-
-#### TablePlus (GUI — lightweight alternative)
-
-1. Download [TablePlus](https://tableplus.com/)
-2. Click **Create a new connection → PostgreSQL**
-3. Enter the same connection details as pgAdmin above
-4. Connect — tables appear in the left panel, double-click to browse rows
-
-#### psql (terminal)
-
-```bash
-# If using Docker PostgreSQL
-docker compose exec postgres psql -U crawler -d crawlerdb
-
-# If using a local PostgreSQL installation
-psql postgres://crawler:crawlerpass@localhost:5432/crawlerdb
-```
-
-Common psql commands once connected:
-
-```
-\dt                    -- list tables
-\d url_frontier        -- describe url_frontier schema
-SELECT COUNT(*) FROM url_frontier WHERE status = 'done';
-\q                     -- quit
-```
-
----
-
 ## Configuration
 
 All configuration is via environment variables. Every variable has a safe default — only `DATABASE_URL` is required.
@@ -217,6 +141,7 @@ All configuration is via environment variables. Every variable has a safe defaul
 | `REQUEST_TIMEOUT_MS` | `10000` | HTTP fetch timeout |
 | `MAX_DEPTH` | `10` | Maximum link depth from seed |
 | `MAX_PAGES` | `10000` | Hard ceiling on total URLs crawled |
+| `MAX_RETRIES` | `3` | Retry attempts for transient errors (429, 5xx, network) |
 | `MAX_RESPONSE_BYTES` | `5242880` | 5 MB response size cap |
 | `STALLED_TIMEOUT_MINUTES` | `5` | Requeue `in_progress` rows older than this |
 | `LOG_LEVEL` | `info` | `debug` for per-URL activity |
@@ -276,7 +201,8 @@ url_frontier (
   fetched_at    TIMESTAMPTZ,
   http_status   INT,
   content_hash  TEXT,                -- SHA-256 for future dedup
-  error         TEXT
+  error         TEXT,
+  retry_count   INT                  -- transient failure retry counter (exponential backoff)
 )
 
 -- Partial index: only pending rows, supports domain-aware dequeue
@@ -363,40 +289,6 @@ An earlier implementation also required an in-process `activeWorkers.count === 0
 
 ---
 
-## Rate Limiting and IP Blocking
-
-### What Happens If the Crawler's IP Gets Blocked?
-
-The website (`ipfabric.io`) returns `HTTP 403 Forbidden` or `429 Too Many Requests`. The current crawler handles this by:
-
-1. Marking the failed URL with `status = 'failed'`, `http_status = 403 (or 429)`, and an error message
-2. **Continuing** to crawl other URLs — no exponential backoff or IP rotation
-3. More URLs fail with the same status
-4. The crawl eventually stalls if blocking persists
-
-The crawler **will not crash**, but the crawl becomes incomplete.
-
-### How Likely Is Blocking?
-
-**Very unlikely** for this homework:
-
-- **Built-in politeness**: default 1-second per-domain crawl delay (respects `robots.txt` if stricter)
-- **Per-domain serialization**: only one URL per domain is fetched at a time — even with 5 workers, `ipfabric.io` gets ~1 request/sec
-- **Honest User-Agent**: identified as `IPFabricCrawler/1.0`, not disguised
-- **Small target site**: `ipfabric.io` is a public marketing site without aggressive rate limits
-
-With these defaults, you will **not be blocked**. You'll look like a normal search engine bot.
-
-### Production Mitigations (Future Improvements)
-
-See **Tier 1** in SCALING.md for:
-- **Exponential backoff on 429**: detect rate-limit responses and back off adaptively
-- **Monitoring**: check the summary report for high 429/403 rates (indicates blocking)
-- **Reduce parallelism**: lower `WORKER_COUNT` or increase `CRAWL_DELAY_MS` if blocking is detected
-- **IP rotation**: proxy pools or geographically distributed crawlers (for very large crawls)
-
----
-
 ## Known Limitations and Weaknesses
 
 ### Structural limitations
@@ -404,13 +296,11 @@ See **Tier 1** in SCALING.md for:
 | Limitation | Impact | Mitigation |
 |---|---|---|
 | JavaScript-rendered content invisible | Pages built with React/Vue/Angular may have no links in their HTML source | Headless browser pool (see SCALING.md) |
-| No retry on transient errors | A 5xx or timeout permanently marks a URL `failed` | Exponential backoff + retry queue (Tier 1 in SCALING.md) |
-| No 429 backoff | If rate-limited, crawler keeps retrying at the same rate | Detect 429 and exponentially back off (Tier 1 in SCALING.md) |
 | `maxPages` is a soft limit | Concurrent workers can all pass the count check before any inserts, slightly overshooting the ceiling | Acceptable for a soft safety guard; use advisory lock or serializable isolation for strict enforcement |
 | `robots.txt` cached 24h | Mid-crawl policy changes are not reflected | Configurable TTL; default is reasonable for a one-shot crawl |
 | No `rel="nofollow"` respect | Links marked nofollow are still followed | Filter in parser |
 | Redirect target not deduplicated | `https://ipfabric.io` and `https://ipfabric.io/` (after redirect) can both appear as separate entries | Normalize canonical URL after redirect chain resolves |
-| No proxy / IP rotation | Aggressive crawl may be rate-limited by aggressive sites | Proxy pool (see SCALING.md Tier 2) |
+| No proxy / IP rotation | Aggressive crawl may be rate-limited | Proxy pool (see SCALING.md) |
 | Per-domain politeness is domain-wide | All workers collectively respect the delay, but a single worker could still issue requests faster than `crawlDelayMs` if `next_fetch_at` is not updated atomically before the next dequeue | `updateNextFetch` advances `next_fetch_at` immediately after each fetch |
 
 ### Scalability ceiling
@@ -426,6 +316,7 @@ The PostgreSQL frontier becomes a bottleneck above ~50 concurrent workers due to
 - **Operational simplicity**: one `docker compose up` command, one dependency (PostgreSQL).
 - **Observability**: full crawl history is queryable SQL; HTTP breakdowns, depth stats, error messages all in one table.
 - **Polite by design**: per-domain crawl delay enforced in the dequeue query itself, not just the application layer.
+- **Resilient**: transient failures (429, 5xx, network errors) are retried with exponential backoff; only permanently failing URLs are marked `failed`.
 - **Graceful shutdown**: SIGINT/SIGTERM drains in-flight fetches before exiting.
 
 ---
@@ -448,6 +339,7 @@ On completion, the crawler prints a summary to the terminal:
 ║  HTTP 2xx     :  304                     ║
 ║  HTTP 3xx     :  5                       ║
 ║  HTTP 4xx     :  7                       ║
+║  HTTP 429     :  0                       ║
 ║  HTTP 5xx     :  1                       ║
 ║  Errors       :  0                       ║
 ╚══════════════════════════════════════════╝
