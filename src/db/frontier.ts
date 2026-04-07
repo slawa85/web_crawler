@@ -27,6 +27,7 @@ export type QueuedUrl = {
 
 export type FrontierStats = {
   pending: number
+  pendingRetry: number  // subset of pending — URLs waiting for retry backoff to expire
   inProgress: number
   done: number
   failed: number
@@ -167,6 +168,7 @@ export async function dequeueUrl(): Promise<QueuedUrl | null> {
         domain: string
         depth: number
         parent_url: string | null
+        retry_count: number
       }>>`
         UPDATE url_frontier
         SET status = 'in_progress', updated_at = now()
@@ -179,7 +181,7 @@ export async function dequeueUrl(): Promise<QueuedUrl | null> {
           LIMIT 1
           FOR UPDATE SKIP LOCKED
         )
-        RETURNING id, url, domain, depth, parent_url
+        RETURNING id, url, domain, depth, parent_url, retry_count
       `
 
       return rows
@@ -196,6 +198,7 @@ export async function dequeueUrl(): Promise<QueuedUrl | null> {
       domain: row.domain,
       depth: row.depth,
       parentUrl: row.parent_url,
+      retryCount: row.retry_count,
     }
   } catch (err) {
     logger.error({ err }, 'dequeueUrl failed')
@@ -228,21 +231,56 @@ export async function markDone(
 }
 
 /**
- * Mark a URL as failed with an error message.
+ * Mark a URL as failed with an error message and optional HTTP status code.
  */
-export async function markFailed(id: bigint, error: string): Promise<void> {
+export async function markFailed(
+  id: bigint,
+  error: string,
+  httpStatus: number | null = null,
+): Promise<void> {
   const sql = getSql()
   try {
     await sql`
       UPDATE url_frontier
       SET status      = 'failed',
           fetched_at  = now(),
-          error       = ${error}
+          error       = ${error},
+          http_status = COALESCE(${httpStatus}, http_status)
       WHERE id = ${String(id)}
     `
   } catch (err) {
     logger.error({ err, id }, 'markFailed failed')
     throw new CrawlerError('markFailed failed', err)
+  }
+}
+
+/**
+ * Requeue a URL for retry with exponential backoff.
+ * Resets status to 'pending', increments retry_count, and pushes next_fetch_at
+ * into the future by backoffMs milliseconds.
+ */
+export async function requeueForRetry(
+  id: bigint,
+  newRetryCount: number,
+  httpStatus: number | null,
+  backoffMs: number,
+): Promise<void> {
+  const sql = getSql()
+  const nextFetchAt = new Date(Date.now() + backoffMs)
+  try {
+    await sql`
+      UPDATE url_frontier
+      SET status        = 'pending',
+          retry_count   = ${newRetryCount},
+          http_status   = ${httpStatus},
+          next_fetch_at = ${nextFetchAt},
+          error         = NULL,
+          updated_at    = now()
+      WHERE id = ${String(id)}
+    `
+  } catch (err) {
+    logger.error({ err, id }, 'requeueForRetry failed')
+    throw new CrawlerError('requeueForRetry failed', err)
   }
 }
 
@@ -303,13 +341,15 @@ export async function getFrontierStats(): Promise<FrontierStats> {
   try {
     const [counts] = await sql<[{
       pending: string
+      pending_retry: string
       in_progress: string
       done: string
       failed: string
       max_depth: string
     }]>`
       SELECT
-        COUNT(*) FILTER (WHERE status = 'pending')     AS pending,
+        COUNT(*) FILTER (WHERE status = 'pending')                                       AS pending,
+        COUNT(*) FILTER (WHERE status = 'pending' AND retry_count > 0 AND next_fetch_at > now()) AS pending_retry,
         COUNT(*) FILTER (WHERE status = 'in_progress') AS in_progress,
         COUNT(*) FILTER (WHERE status = 'done')        AS done,
         COUNT(*) FILTER (WHERE status = 'failed')      AS failed,
@@ -321,6 +361,7 @@ export async function getFrontierStats(): Promise<FrontierStats> {
       http2xx: string
       http3xx: string
       http4xx: string
+      http429: string
       http5xx: string
       http_errors: string
     }]>`
@@ -328,6 +369,7 @@ export async function getFrontierStats(): Promise<FrontierStats> {
         COUNT(*) FILTER (WHERE http_status >= 200 AND http_status < 300) AS http2xx,
         COUNT(*) FILTER (WHERE http_status >= 300 AND http_status < 400) AS http3xx,
         COUNT(*) FILTER (WHERE http_status >= 400 AND http_status < 500) AS http4xx,
+        COUNT(*) FILTER (WHERE http_status = 429)                        AS http429,
         COUNT(*) FILTER (WHERE http_status >= 500 AND http_status < 600) AS http5xx,
         COUNT(*) FILTER (WHERE http_status IS NULL AND status = 'failed')  AS http_errors
       FROM url_frontier
@@ -335,14 +377,16 @@ export async function getFrontierStats(): Promise<FrontierStats> {
     `
 
     return {
-      pending:    parseInt(counts?.pending     ?? '0', 10),
-      inProgress: parseInt(counts?.in_progress ?? '0', 10),
+      pending:      parseInt(counts?.pending       ?? '0', 10),
+      pendingRetry: parseInt(counts?.pending_retry ?? '0', 10),
+      inProgress:   parseInt(counts?.in_progress   ?? '0', 10),
       done:       parseInt(counts?.done        ?? '0', 10),
       failed:     parseInt(counts?.failed      ?? '0', 10),
       maxDepth:   parseInt(counts?.max_depth   ?? '0', 10),
       http2xx:    parseInt(httpBreakdown?.http2xx     ?? '0', 10),
       http3xx:    parseInt(httpBreakdown?.http3xx     ?? '0', 10),
       http4xx:    parseInt(httpBreakdown?.http4xx     ?? '0', 10),
+      http429:    parseInt(httpBreakdown?.http429     ?? '0', 10),
       http5xx:    parseInt(httpBreakdown?.http5xx     ?? '0', 10),
       httpErrors: parseInt(httpBreakdown?.http_errors ?? '0', 10),
     }

@@ -8,7 +8,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "cheerio": "^1.0.0",
@@ -25,6 +26,7 @@
     "eslint": "^8.57.0",
     "pino-pretty": "^11.2.2",
     "tsx": "^4.16.2",
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "vitest": "^4.1.2"
   }
 }

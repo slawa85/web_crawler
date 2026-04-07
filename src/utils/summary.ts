@@ -60,6 +60,7 @@ export function printSummary(stats: CrawlStats): void {
     row('HTTP 2xx', stats.http2xx),
     row('HTTP 3xx', stats.http3xx),
     row('HTTP 4xx', stats.http4xx),
+    row('HTTP 429', stats.http429),
     row('HTTP 5xx', stats.http5xx),
     row('Errors', stats.failed),
     bottom(),
@@ -67,5 +68,12 @@ export function printSummary(stats: CrawlStats): void {
 
   for (const line of lines) {
     process.stdout.write(line + '\n')
+  }
+
+  const totalProcessed = stats.done + stats.failed
+  if (totalProcessed > 0 && stats.http429 > 0 && stats.http429 / totalProcessed > 0.1) {
+    process.stdout.write(
+      `\nWARN: ${stats.http429} URLs returned HTTP 429 (rate limited). Consider increasing CRAWL_DELAY_MS or reducing WORKER_COUNT.\n`,
+    )
   }
 }

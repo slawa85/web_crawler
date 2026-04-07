@@ -1,4 +1,4 @@
-import { dequeueUrl, enqueueUrls, markDone, markFailed, updateNextFetch, type UrlRecord } from '../db/frontier.js'
+import { dequeueUrl, enqueueUrls, markDone, markFailed, requeueForRetry, updateNextFetch, type QueuedUrl, type UrlRecord } from '../db/frontier.js'
 import { fetchUrl } from './fetcher.js'
 import { extractUrls } from './parser.js'
 import { isInScope } from './normalizer.js'
@@ -82,22 +82,34 @@ export async function runWorker(
     try {
       result = await fetchUrl(url.url)
     } catch (err) {
-      logger.error({ err, workerId, url: url.url }, 'fetchUrl threw unexpectedly — marking failed')
+      logger.error({ err, workerId, url: url.url }, 'fetchUrl threw unexpectedly')
       try {
-        await markFailed(url.id, `unexpected fetch error: ${String(err)}`)
+        await handleFetchFailure(url, 0, `unexpected fetch error: ${String(err)}`, workerId)
       } catch (innerErr) {
-        logger.error({ innerErr }, 'markFailed also failed')
+        logger.error({ innerErr }, 'handleFetchFailure also failed')
       }
       activeWorkers.count--
       continue
     }
 
     if (result.error !== undefined) {
-      logger.debug({ url: url.url, error: result.error }, 'Fetch returned error — marking failed')
+      logger.debug({ url: url.url, error: result.error, status: result.status }, 'Fetch returned error')
       try {
-        await markFailed(url.id, result.error)
+        await handleFetchFailure(url, result.status, result.error, workerId)
       } catch (err) {
-        logger.error({ err }, 'markFailed failed after fetch error')
+        logger.error({ err }, 'handleFetchFailure failed after fetch error')
+      }
+      activeWorkers.count--
+      continue
+    }
+
+    // ── Retryable HTTP status (429 / 5xx) ─────────────────────────────────────
+    if (isRetryableStatus(result.status)) {
+      logger.debug({ url: url.url, status: result.status }, 'Retryable HTTP status')
+      try {
+        await handleFetchFailure(url, result.status, `HTTP ${result.status}`, workerId)
+      } catch (err) {
+        logger.error({ err }, 'handleFetchFailure failed after retryable status')
       }
       activeWorkers.count--
       continue
@@ -168,4 +180,40 @@ export async function runWorker(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || (status >= 500 && status < 600)
+}
+
+/**
+ * Handle a fetch failure by either requeueing for retry (transient errors) or
+ * marking as permanently failed.
+ *
+ * Retryable: network errors (status 0), HTTP 429, HTTP 5xx.
+ */
+async function handleFetchFailure(
+  url: QueuedUrl,
+  status: number,
+  error: string,
+  workerId: number,
+): Promise<void> {
+  const retryable = status === 0 || isRetryableStatus(status)
+
+  if (retryable && url.retryCount < config.maxRetries) {
+    const backoffMs = Math.min(5000 * Math.pow(3, url.retryCount), 60_000) // 5s, 15s, 45s (capped at 60s)
+    logger.warn(
+      { workerId, url: url.url, retryCount: url.retryCount + 1, backoffMs, status },
+      'Requeueing URL for retry with backoff',
+    )
+    await requeueForRetry(
+      url.id,
+      url.retryCount + 1,
+      status === 0 ? null : status,
+      backoffMs,
+    )
+  } else {
+    const suffix = url.retryCount > 0 ? ` (after ${url.retryCount} retries)` : ''
+    await markFailed(url.id, `${error}${suffix}`, status === 0 ? null : status)
+  }
 }

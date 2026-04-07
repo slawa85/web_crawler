@@ -5,6 +5,7 @@ export type Config = {
   requestTimeoutMs: number
   maxDepth: number
   maxPages: number
+  maxRetries: number
   maxResponseBytes: number
   stalledTimeoutMinutes: number
   databaseUrl: string
@@ -52,6 +53,7 @@ export const config: Config = {
   requestTimeoutMs: envInt('REQUEST_TIMEOUT_MS', 10_000),
   maxDepth: envInt('MAX_DEPTH', 10),
   maxPages: envInt('MAX_PAGES', 10_000),
+  maxRetries: envInt('MAX_RETRIES', 3),
   maxResponseBytes: envInt('MAX_RESPONSE_BYTES', 5_242_880),
   stalledTimeoutMinutes: envInt('STALLED_TIMEOUT_MINUTES', 5),
   logLevel: envStr('LOG_LEVEL', 'info'),
@@ -62,3 +64,4 @@ assertRange('MAX_DEPTH', config.maxDepth, 1)
 assertRange('CRAWL_DELAY_MS', config.crawlDelayMs, 0)
 assertRange('REQUEST_TIMEOUT_MS', config.requestTimeoutMs, 1000)
 assertRange('MAX_PAGES', config.maxPages, 1)
+assertRange('MAX_RETRIES', config.maxRetries, 0)

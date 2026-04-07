@@ -133,8 +133,9 @@ export async function fetchUrl(url: string): Promise<FetchResult> {
         return { url: currentUrl, status, body: null, contentHash: sha256(''), redirectChain }
       }
 
-      while (true) {
-        const { done, value } = await reader.read()
+      for (;;) {
+        const readResult = await reader.read() as ReadableStreamReadResult<Uint8Array>
+        const { done, value } = readResult
         if (done) break
         if (value !== undefined) {
           totalBytes += value.byteLength
