@@ -1,6 +1,6 @@
-# IP Fabric Web Crawler
+# Web Crawler
 
-A distributed-ready web crawler seeded at `https://ipfabric.io/`, scoped to that domain and its subdomains. It fetches pages, extracts URLs, deduplicates them via PostgreSQL, and schedules further fetches until the frontier is exhausted. Prints a terminal summary on completion.
+A distributed-ready web crawler seeded at `https://example.com/`, scoped to that domain and its subdomains. It fetches pages, extracts URLs, deduplicates them via PostgreSQL, and schedules further fetches until the frontier is exhausted. Prints a terminal summary on completion.
 
 ---
 
@@ -12,7 +12,7 @@ A distributed-ready web crawler seeded at `https://ipfabric.io/`, scoped to that
 
 ```bash
 git clone <repo-url>
-cd ip_fabric_homework
+cd web_crawler
 cp .env.example .env
 ```
 
@@ -29,7 +29,7 @@ Docker will:
 2. Build the crawler image (multi-stage TypeScript compile)
 3. Wait for PostgreSQL to be healthy
 4. Run schema migrations and insert the seed URL
-5. Start crawling `https://ipfabric.io/`
+5. Start crawling `https://example.com/`
 
 You will see structured JSON logs in the terminal (one line per event). When the frontier is exhausted the crawler prints a summary box and exits.
 
@@ -135,7 +135,7 @@ All configuration is via environment variables. Every variable has a safe defaul
 | Variable | Default | Description |
 |---|---|---|
 | `DATABASE_URL` | *(required)* | PostgreSQL connection string |
-| `SEED_URL` | `https://ipfabric.io/` | Starting URL |
+| `SEED_URL` | `https://example.com/` | Starting URL |
 | `WORKER_COUNT` | `5` | Concurrent fetch workers |
 | `CRAWL_DELAY_MS` | `1000` | Minimum milliseconds between fetches per domain |
 | `REQUEST_TIMEOUT_MS` | `10000` | HTTP fetch timeout |
@@ -279,7 +279,7 @@ An earlier implementation also required an in-process `activeWorkers.count === 0
 
 ## Assumptions
 
-1. **Scoped crawl** — only `http(s)://ipfabric.io` and `*.ipfabric.io` are followed; external links are discovered but discarded.
+1. **Scoped crawl** — only `https://example.com/` and `*.example.com` are followed; external links are discovered but discarded.
 2. **One-shot** — runs until the frontier is exhausted, then exits. No incremental re-crawl.
 3. **Static HTML only** — JavaScript-rendered content is invisible to cheerio; no headless browser.
 4. **Public content only** — no authentication, cookies, or login-gated pages.
@@ -299,7 +299,7 @@ An earlier implementation also required an in-process `activeWorkers.count === 0
 | `maxPages` is a soft limit | Concurrent workers can all pass the count check before any inserts, slightly overshooting the ceiling | Acceptable for a soft safety guard; use advisory lock or serializable isolation for strict enforcement |
 | `robots.txt` cached 24h | Mid-crawl policy changes are not reflected | Configurable TTL; default is reasonable for a one-shot crawl |
 | No `rel="nofollow"` respect | Links marked nofollow are still followed | Filter in parser |
-| Redirect target not deduplicated | `https://ipfabric.io` and `https://ipfabric.io/` (after redirect) can both appear as separate entries | Normalize canonical URL after redirect chain resolves |
+| Redirect target not deduplicated | `https://example.com/` and `https://example.com/` (after redirect) can both appear as separate entries | Normalize canonical URL after redirect chain resolves |
 | No proxy / IP rotation | Aggressive crawl may be rate-limited | Proxy pool (see SCALING.md) |
 | Per-domain politeness is domain-wide | All workers collectively respect the delay, but a single worker could still issue requests faster than `crawlDelayMs` if `next_fetch_at` is not updated atomically before the next dequeue | `updateNextFetch` advances `next_fetch_at` immediately after each fetch |
 
@@ -329,7 +329,7 @@ On completion, the crawler prints a summary to the terminal:
 ╔══════════════════════════════════════════╗
 ║             CRAWL COMPLETE               ║
 ╠══════════════════════════════════════════╣
-║  Seed URL     : https://ipfabric.io/     ║
+║  Seed URL     : https://example.com/     ║
 ║  Duration     : 2m 14s                   ║
 ╠══════════════════════════════════════════╣
 ║  Pages fetched    :  312                 ║

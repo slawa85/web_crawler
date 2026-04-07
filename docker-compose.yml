@@ -23,7 +23,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgres://crawler:crawlerpass@postgres:5432/crawlerdb
-      SEED_URL: ${SEED_URL:-https://ipfabric.io/}
+      SEED_URL: ${SEED_URL:-https://example.com/}
       WORKER_COUNT: ${WORKER_COUNT:-5}
       CRAWL_DELAY_MS: ${CRAWL_DELAY_MS:-1000}
       REQUEST_TIMEOUT_MS: ${REQUEST_TIMEOUT_MS:-10000}

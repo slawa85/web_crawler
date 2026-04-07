@@ -3,7 +3,7 @@ import { fetch, type Response } from 'undici'
 import { config } from '../config.js'
 import { logger } from '../utils/logger.js'
 
-const USER_AGENT = 'IPFabricCrawler/1.0 (+https://ipfabric.io)'
+const USER_AGENT = 'ExampleComCrawler/1.0 (+https://example.com/)'
 const MAX_REDIRECTS = 10
 
 export type FetchResult = {

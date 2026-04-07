@@ -47,7 +47,7 @@ function assertRange(name: string, value: number, min: number): void {
 
 export const config: Config = {
   databaseUrl: requireEnv('DATABASE_URL'),
-  seedUrl: envStr('SEED_URL', 'https://ipfabric.io/'),
+  seedUrl: envStr('SEED_URL', 'https://example.com/'),
   workerCount: envInt('WORKER_COUNT', 5),
   crawlDelayMs: envInt('CRAWL_DELAY_MS', 1000),
   requestTimeoutMs: envInt('REQUEST_TIMEOUT_MS', 10_000),

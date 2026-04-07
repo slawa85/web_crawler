@@ -97,7 +97,7 @@ export function normalizeUrl(raw: string, baseUrl: string): string | null {
 /**
  * Returns true if the URL is in scope for crawling:
  * - http or https scheme
- * - host is exactly ipfabric.io or ends with .ipfabric.io
+ * - host is exactly example.com or ends with .example.com
  * - URL length <= 2048
  * - Not a spider trap (path depth <= 15, no repeated segments)
  */
@@ -115,7 +115,7 @@ export function isInScope(url: string): boolean {
   }
 
   const host = parsed.hostname.toLowerCase()
-  if (host !== 'ipfabric.io' && !host.endsWith('.ipfabric.io')) {
+  if (host !== 'example.com' && !host.endsWith('.example.com')) {
     return false
   }
 

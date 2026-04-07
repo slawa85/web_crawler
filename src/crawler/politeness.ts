@@ -14,7 +14,7 @@ import { getDomainInfo, saveDomainInfo, type DomainInfo } from '../db/frontier.j
 import { config } from '../config.js'
 import { logger } from '../utils/logger.js'
 
-const USER_AGENT = 'IPFabricCrawler/1.0 (+https://ipfabric.io)'
+const USER_AGENT = 'ExampleComCrawler/1.0 (+https://example.com/)'
 const ROBOTS_CACHE_TTL_MS = 24 * 60 * 60 * 1000  // 24 hours
 const ROBOTS_FETCH_TIMEOUT_MS = 10_000
 
